@@ -2,9 +2,10 @@
 
 Page HTML autonome affichant graphiquement l'horaire des marées de Faro-Olhão (Portugal), avec sélecteur de date et ligne "agora" (heure locale) quand la date affichée est le jour courant.
 
-## Fichier
+## Fichiers
 
-`index.html` — pas de dépendance de build, ouvrir directement ou servir statiquement.
+- `index.html` — page autonome, pas de dépendance de build, ouvrir directement ou servir statiquement.
+- `ubersicht-widget.jsx` — widget de bureau pour [Übersicht](http://tracesof.net/uebersicht/) (`brew install --cask ubersicht`). Copier dans `~/Library/Application Support/Übersicht/widgets/maree-faro.widget/index.jsx`. Contourne le CORS en récupérant les données via `curl` (process shell, pas de fetch navigateur) plutôt que via le proxy `r.jina.ai` utilisé par la page HTML.
 
 ## Source des données
 
