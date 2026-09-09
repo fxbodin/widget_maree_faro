@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Marées — Faro-Olhão</title>
+<style>
+  :root {
+    --bg: #0b2a3d;
+    --bg2: #0e3650;
+    --panel: #123a56;
+    --line: #1c4d6e;
+    --accent: #4fc3e0;
+    --accent2: #e0a84f;
+    --text: #eaf4f8;
+    --text-dim: #93b3c4;
+    --pm: #4fc3e0;
+    --bm: #e0956b;
+    --now: #ff5252;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: linear-gradient(180deg, var(--bg), var(--bg2));
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 16px 40px;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 4px; }
+  h1 { font-size: 1.4rem; margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+  .sub { color: var(--text-dim); font-size: 0.85rem; margin-bottom: 20px; }
+  .controls {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; flex-wrap: wrap;
+  }
+  .controls button {
+    background: var(--line); border: none; color: var(--text); width: 34px; height: 34px;
+    border-radius: 8px; font-size: 1rem; cursor: pointer; line-height: 1;
+  }
+  .controls button:hover { background: var(--accent); color: var(--bg); }
+  .controls input[type=date] {
+    background: var(--bg2); border: 1px solid var(--line); color: var(--text);
+    padding: 8px 10px; border-radius: 8px; font-size: 0.95rem; flex: 1; min-width: 150px;
+  }
+  .controls .today-btn {
+    width: auto; padding: 0 12px; font-size: 0.85rem; white-space: nowrap;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+    padding: 16px; margin-bottom: 20px;
+  }
+  svg { width: 100%; height: auto; display: block; }
+  .axis-label { fill: var(--text-dim); font-size: 11px; }
+  .grid-line { stroke: var(--line); stroke-width: 1; }
+  .curve { fill: none; stroke: var(--accent); stroke-width: 2.5; }
+  .curve-fill { fill: url(#curveGrad); opacity: 0.35; }
+  .point-pm { fill: var(--pm); }
+  .point-bm { fill: var(--bm); }
+  .point-label { fill: var(--text); font-size: 11px; font-weight: 600; }
+  .point-time { fill: var(--text-dim); font-size: 10px; }
+  .now-line { stroke: var(--now); stroke-width: 1.5; stroke-dasharray: 4 3; }
+  .now-label { fill: var(--now); font-size: 11px; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); }
+  th { color: var(--text-dim); font-weight: 500; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 0.78rem; font-weight: 600; }
+  .tag-pm { background: rgba(79,195,224,0.18); color: var(--pm); }
+  .tag-bm { background: rgba(224,149,107,0.18); color: var(--bm); }
+  .status { text-align: center; padding: 40px 10px; color: var(--text-dim); }
+  .status.error { color: #ff8a8a; }
+  footer { text-align: center; color: var(--text-dim); font-size: 0.75rem; margin-top: 8px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Marées — Faro-Olhão</h1>
+  </header>
+  <div class="sub">Barra de Faro-Olhão · source Instituto Hidrográfico</div>
+
+  <div class="controls">
+    <button id="prevDay" aria-label="Jour précédent">‹</button>
+    <input type="date" id="datePicker">
+    <button id="nextDay" aria-label="Jour suivant">›</button>
+    <button class="today-btn" id="todayBtn">Aujourd'hui</button>
+  </div>
+
+  <div class="panel" id="graphPanel">
+    <div class="status" id="statusMsg">Chargement…</div>
+    <svg id="chart" viewBox="0 0 720 320" style="display:none"></svg>
+  </div>
+
+  <div class="panel" id="tablePanel" style="display:none">
+    <table>
+      <thead><tr><th>Hora</th><th>Altura</th><th>Fenómeno</th></tr></thead>
+      <tbody id="tideTableBody"></tbody>
+    </table>
+  </div>
+
+  <footer id="footerNote"></footer>
+</div>
+
+<script>
+const PORT_ID = 19;
+const DIRECT_URL = (date) => `https://www.hidrografico.pt/hmapi/tidestation/?portID=${PORT_ID}&startDate=${date}&period=1`;
+const PROXY_URL = (date) => `https://r.jina.ai/${DIRECT_URL(date)}`;
+
+const el = {
+  status: document.getElementById('statusMsg'),
+  svg: document.getElementById('chart'),
+  tablePanel: document.getElementById('tablePanel'),
+  tbody: document.getElementById('tideTableBody'),
+  datePicker: document.getElementById('datePicker'),
+  footer: document.getElementById('footerNote'),
+};
+
+function todayISO() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function shiftDate(iso, days) {
+  const d = new Date(iso + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+async function fetchTides(dateISO) {
+  try {
+    const r = await fetch(DIRECT_URL(dateISO));
+    if (r.ok) {
+      const txt = await r.text();
+      return JSON.parse(txt);
+    }
+  } catch (e) { /* fall through to proxy */ }
+
+  const r2 = await fetch(PROXY_URL(dateISO));
+  if (!r2.ok) throw new Error('Proxy HTTP ' + r2.status);
+  const txt2 = await r2.text();
+  const marker = 'Markdown Content:';
+  const idx = txt2.indexOf(marker);
+  const jsonStr = idx >= 0 ? txt2.slice(idx + marker.length).trim() : txt2.trim();
+  return JSON.parse(jsonStr);
+}
+
+function parseEvents(raw, dateISO) {
+  return raw
+    .filter(e => e.tide === 'PM' || e.tide === 'BM')
+    .filter(e => e.date && e.date.startsWith(dateISO))
+    .map(e => ({
+      time: e.date.slice(11, 16),
+      minutes: (() => { const [h,m] = e.date.slice(11,16).split(':').map(Number); return h*60+m; })(),
+      height: e.height,
+      tide: e.tide,
+      label: e.event,
+    }))
+    .sort((a,b) => a.minutes - b.minutes);
+}
+
+// Monotone cubic (Fritsch-Carlson) interpolation
+function monotoneCubicSpline(points) {
+  const n = points.length;
+  const xs = points.map(p => p.x), ys = points.map(p => p.y);
+  const dys = [], dxs = [], ms = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = xs[i+1]-xs[i], dy = ys[i+1]-ys[i];
+    dxs.push(dx); dys.push(dy); ms.push(dy/dx);
+  }
+  const c1s = [ms[0]];
+  for (let i = 0; i < dxs.length - 1; i++) {
+    const m0 = ms[i], m1 = ms[i+1];
+    if (m0*m1 <= 0) c1s.push(0);
+    else {
+      const dx0 = dxs[i], dx1 = dxs[i+1], common = dx0+dx1;
+      c1s.push(3*common/((common+dx1)/m0 + (common+dx0)/m1));
+    }
+  }
+  c1s.push(ms[ms.length-1]);
+  const c2s = [], c3s = [];
+  for (let i = 0; i < c1s.length - 1; i++) {
+    const c1 = c1s[i], m0 = ms[i], invDx = 1/dxs[i];
+    const common = c1 + c1s[i+1] - 2*m0;
+    c2s.push((m0-c1-common)*invDx);
+    c3s.push(common*invDx*invDx);
+  }
+  function evalAt(x) {
+    let i = 0;
+    while (i < xs.length - 2 && x >= xs[i+1]) i++;
+    const diff = x - xs[i];
+    return ys[i] + c1s[i]*diff + c2s[i]*diff*diff + c3s[i]*diff*diff*diff;
+  }
+  return evalAt;
+}
+
+function render(events, dateISO) {
+  el.status.style.display = 'none';
+  el.svg.style.display = 'block';
+  el.tablePanel.style.display = 'block';
+
+  const W = 720, H = 320, padL = 40, padR = 20, padT = 24, padB = 36;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+
+  const heights = events.map(e => e.height);
+  const minH = Math.min(...heights, 0);
+  const maxH = Math.max(...heights);
+  const yPad = (maxH - minH) * 0.15 || 0.5;
+  const yMin = minH - yPad, yMax = maxH + yPad;
+
+  const xScale = min => padL + (min / 1440) * plotW;
+  const yScale = h => padT + plotH - ((h - yMin) / (yMax - yMin)) * plotH;
+
+  // extend curve edges flat to midnight/midnight using neighboring slope-free anchors
+  const pts = events.map(e => ({ x: e.minutes, y: e.height }));
+  const first = pts[0], last = pts[pts.length-1];
+  const extPts = [{x:0, y:first.y}, ...pts, {x:1440, y:last.y}];
+  const spline = monotoneCubicSpline(extPts);
+
+  let d = '';
+  const steps = 120;
+  for (let i = 0; i <= steps; i++) {
+    const x = (i/steps) * 1440;
+    const y = spline(x);
+    const px = xScale(x), py = yScale(y);
+    d += (i===0 ? 'M' : 'L') + px.toFixed(1) + ',' + py.toFixed(1) + ' ';
+  }
+  const fillD = d + `L${xScale(1440).toFixed(1)},${yScale(yMin).toFixed(1)} L${xScale(0).toFixed(1)},${yScale(yMin).toFixed(1)} Z`;
+
+  let svg = `<defs><linearGradient id="curveGrad" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.5"/>
+    <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/>
+  </linearGradient></defs>`;
+
+  // grid + hour labels every 3h
+  for (let h = 0; h <= 24; h += 3) {
+    const x = xScale(h*60);
+    svg += `<line class="grid-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT+plotH}"/>`;
+    svg += `<text class="axis-label" x="${x}" y="${H-14}" text-anchor="middle">${String(h).padStart(2,'0')}h</text>`;
+  }
+  // horizontal gridlines
+  const hLines = 4;
+  for (let i = 0; i <= hLines; i++) {
+    const val = yMin + (i/hLines)*(yMax-yMin);
+    const y = yScale(val);
+    svg += `<line class="grid-line" x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}"/>`;
+    svg += `<text class="axis-label" x="${padL-6}" y="${y+3}" text-anchor="end">${val.toFixed(1)}m</text>`;
+  }
+
+  svg += `<path class="curve-fill" d="${fillD}"/>`;
+  svg += `<path class="curve" d="${d}"/>`;
+
+  events.forEach(e => {
+    const px = xScale(e.minutes), py = yScale(e.height);
+    const cls = e.tide === 'PM' ? 'point-pm' : 'point-bm';
+    const above = e.tide === 'PM';
+    svg += `<circle class="${cls}" cx="${px}" cy="${py}" r="5"/>`;
+    svg += `<text class="point-label" x="${px}" y="${above ? py-14 : py+22}" text-anchor="middle">${e.height.toFixed(2)}m</text>`;
+    svg += `<text class="point-time" x="${px}" y="${above ? py-26 : py+34}" text-anchor="middle">${e.time}</text>`;
+  });
+
+  // "now" line — only if viewing today, using local (Europe/Lisbon) time
+  const nowISO = todayISO();
+  if (dateISO === nowISO) {
+    const now = new Date();
+    const nowMin = now.getHours()*60 + now.getMinutes();
+    const nx = xScale(nowMin);
+    svg += `<line class="now-line" x1="${nx}" y1="${padT}" x2="${nx}" y2="${padT+plotH}"/>`;
+    const tz = Intl.DateTimeFormat('fr', {timeZoneName:'short'}).formatToParts(now).find(p=>p.type==='timeZoneName');
+    const label = 'agora ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0') + (tz ? ' '+tz.value : '');
+    const anchorRight = nx > W - 140;
+    svg += `<text class="now-label" x="${anchorRight ? nx-6 : nx+6}" y="${padT+12}" text-anchor="${anchorRight ? 'end':'start'}">${label}</text>`;
+  }
+
+  el.svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.svg.innerHTML = svg;
+
+  el.tbody.innerHTML = events.map(e => `
+    <tr>
+      <td>${e.time}</td>
+      <td>${e.height.toFixed(2)} m</td>
+      <td><span class="tag ${e.tide==='PM'?'tag-pm':'tag-bm'}">${e.label}</span></td>
+    </tr>`).join('');
+
+  el.footer.innerHTML = `Europe/Lisbon (${Intl.DateTimeFormat('fr',{timeZoneName:'short'}).formatToParts(new Date()).find(p=>p.type==='timeZoneName')?.value || ''}) · Dados: Instituto Hidrográfico`;
+}
+
+async function loadAndRender(dateISO) {
+  el.status.style.display = 'block';
+  el.status.className = 'status';
+  el.status.textContent = 'Chargement…';
+  el.svg.style.display = 'none';
+  el.tablePanel.style.display = 'none';
+
+  try {
+    const raw = await fetchTides(dateISO);
+    const events = parseEvents(raw, dateISO);
+    if (events.length === 0) throw new Error('Aucune donnée pour cette date.');
+    render(events, dateISO);
+  } catch (err) {
+    el.status.className = 'status error';
+    el.status.textContent = 'Erreur de chargement : ' + err.message + '. Réessayez ou vérifiez la connexion.';
+  }
+}
+
+el.datePicker.value = todayISO();
+loadAndRender(el.datePicker.value);
+
+el.datePicker.addEventListener('change', () => loadAndRender(el.datePicker.value));
+document.getElementById('prevDay').addEventListener('click', () => {
+  el.datePicker.value = shiftDate(el.datePicker.value, -1);
+  loadAndRender(el.datePicker.value);
+});
+document.getElementById('nextDay').addEventListener('click', () => {
+  el.datePicker.value = shiftDate(el.datePicker.value, 1);
+  loadAndRender(el.datePicker.value);
+});
+document.getElementById('todayBtn').addEventListener('click', () => {
+  el.datePicker.value = todayISO();
+  loadAndRender(el.datePicker.value);
+});
+</script>
+</body>
+</html>
