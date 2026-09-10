@@ -403,8 +403,18 @@ if (typeof window !== 'undefined') {
   };
 }
 
+// Reset the navigated day back to "today" once per widget (re)load — e.g. after quitting
+// and relaunching Übersicht — without resetting it on every periodic refreshFrequency
+// re-render within the same running session (which would make day navigation pointless).
+let sessionStarted = false;
+
 export const render = ({ output, error }) => {
   if (typeof window !== 'undefined') window.__mareeFaroRaw = null;
+
+  if (!sessionStarted) {
+    sessionStarted = true;
+    if (typeof window !== 'undefined') setOffset(0);
+  }
 
   const pos = typeof window !== 'undefined' ? getPos() : null;
   const posStyle = pos ? { position: 'fixed', left: pos.left + 'px', top: pos.top + 'px', bottom: 'auto', right: 'auto' } : undefined;
