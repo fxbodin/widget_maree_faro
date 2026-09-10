@@ -23,6 +23,8 @@ Réponse JSON, un item par événement de marée (Preia-Mar / Baixa-Mar), plus q
 
 Couverture des données (vérifiée empiriquement, port 19) : du **01/01/2007** à fin **2027**. En dehors de cette plage, l'API répond 200 avec uniquement des items phase lunaire, sans marée.
 
+**`period` plafonné à 7 jours.** Vérifié : `period=8` à `period=27` renvoient tous exactement les mêmes 7 jours que `period=7` — la valeur demandée au-delà de 7 est silencieusement ignorée. Pour couvrir une fenêtre plus large (le widget Übersicht charge -3/+21 jours), il faut enchaîner plusieurs appels de 7 jours et fusionner les résultats (voir `ubersicht-widget.jsx`, `command`, script Python).
+
 ## Problème CORS
 
 L'API ne renvoie pas d'en-tête `Access-Control-Allow-Origin`. Ouvrir l'URL directement dans un navigateur fonctionne (simple navigation, pas de contrôle CORS), mais un `fetch()` JS depuis un autre domaine échoue (`Failed to fetch`).
