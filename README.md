@@ -33,6 +33,15 @@ Contournement dans `index.html` : tentative de fetch direct d'abord, puis repli 
 
 Point fragile : dépendance à un service tiers gratuit hors de notre contrôle. Si `r.jina.ai` change de comportement ou tombe, le widget échoue. Alternative plus pérenne : héberger un petit relai serveur soi-même (hors scope de cette page autonome).
 
+## Widget Übersicht — dimensions fixes
+
+Le widget garde des dimensions constantes quel que soit le jour affiché :
+
+- **Amplitude verticale** : l'échelle de l'axe Y du graphique est calculée une fois sur l'ensemble des données chargées (-3/+21 jours), pas par jour affiché — sinon la courbe change de hauteur visuelle en changeant de jour.
+- **Largeur** : le format d'affichage de la date (`jjj JJ/MM`, ex. `mer 01/01`, `ven 31/12`) fait toujours exactement 9 caractères, vérifié sur les 366 jours d'une année bissextile — aucune dérive possible (pas de nom de mois en toutes lettres, pas d'ordinal).
+- Le panneau a une largeur fixée en dur (`400px`) sur l'élément réellement rendu (`.panel`), pas seulement sur le conteneur externe géré par Übersicht — sinon il se redimensionne au contenu le plus large (le titre) et dérive de quelques pixels selon les caractères.
+- Le titre ne passe jamais à la ligne (`white-space: nowrap` + `text-overflow: ellipsis`), ce qui évite qu'une hauteur d'en-tête à une ligne certains jours et deux lignes d'autres jours ne fasse varier la hauteur totale.
+
 ## Widget Übersicht — pièges rencontrés
 
 - **`command` en fonction de state = piégé.** Sur la version installée (1.6.82), simplement exporter `initialState`/`updateState` casse silencieusement le pipeline `command` (string) → `output` : `output` reste vide en permanence, sans erreur visible, même si `render()` n'utilise jamais `dispatch`. La doc générique d'Übersicht dit que les deux mécanismes cohabitent ; pas vérifié sur cette version. Solution retenue : navigation de jour gérée entièrement côté client (DOM + `localStorage`), sans passer par `initialState`/`updateState`/`dispatch`.

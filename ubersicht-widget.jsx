@@ -33,7 +33,7 @@ export const refreshFrequency = 5 * 60 * 1000; // 5 min: re-fetch data + move th
 export const className = `
   left: 20px;
   bottom: 20px;
-  width: 360px;
+  width: 400px;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 
   .panel {
@@ -42,6 +42,12 @@ export const className = `
     padding: 14px 14px 10px;
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     color: #eaf4f8;
+    /* Hard width on the element we actually render — the top-level width:360px
+       above only constrains Übersicht's own outer wrapper, not this div, which
+       otherwise shrink-wraps to its widest line (the title) and drifts by a few
+       px depending on which characters it contains. */
+    width: 400px;
+    box-sizing: border-box;
   }
   .header {
     display: flex;
@@ -53,10 +59,14 @@ export const className = `
   }
   h1 {
     margin: 0;
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 600;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.01em;
     flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .collapse-btn {
     background: transparent;
@@ -217,17 +227,24 @@ function monotoneCubicSpline(points) {
   return evalAt;
 }
 
-function buildChart(allEvents, dateISO) {
+// Y-axis range fixed across the whole fetched window (not recomputed per displayed day),
+// so the chart's vertical scale — and therefore the widget's apparent size/proportions —
+// stays constant while navigating days instead of rescaling to each day's own amplitude.
+function globalYRange(allEvents) {
+  const heights = allEvents.filter(e => e.height != null).map(e => e.height);
+  const minH = Math.min(...heights, 0);
+  const maxH = Math.max(...heights);
+  const yPad = (maxH - minH) * 0.15 || 0.5;
+  return { yMin: minH - yPad, yMax: maxH + yPad };
+}
+
+function buildChart(allEvents, dateISO, yRange) {
   const events = allEvents.filter(e => e.isTarget);
 
   const W = 340, H = 200, padL = 34, padR = 12, padT = 22, padB = 24;
   const plotW = W - padL - padR, plotH = H - padT - padB;
 
-  const heights = events.map(e => e.height);
-  const minH = Math.min(...heights, 0);
-  const maxH = Math.max(...heights);
-  const yPad = (maxH - minH) * 0.15 || 0.5;
-  const yMin = minH - yPad, yMax = maxH + yPad;
+  const { yMin, yMax } = yRange;
 
   const xScale = min => padL + (min / 1440) * plotW;
   const yScale = h => padT + plotH - ((h - yMin) / (yMax - yMin)) * plotH;
@@ -321,7 +338,7 @@ function bodyHtml(raw, offset) {
   try {
     const allEvents = parseEvents(raw, dateISO);
     if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour cette date.');
-    const svgHtml = buildChart(allEvents, dateISO);
+    const svgHtml = buildChart(allEvents, dateISO, globalYRange(allEvents));
     return `${SOURCE_SUB}${svgHtml}${nav}`;
   } catch (e) {
     return `${SOURCE_SUB}<div class="error">Erreur : ${e.message}</div>${nav}`;
