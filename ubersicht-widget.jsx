@@ -1,13 +1,31 @@
-const NAV_RANGE = 3; // days navigable each side of today, bounded by the fetched window below
+const NAV_BACK = 3;    // days navigable into the past
+const NAV_FORWARD = 21; // days navigable into the future
 
 // Widget fetches a wide static window; day navigation is handled entirely client-side
 // (plain DOM + localStorage), NOT via Übersicht's initialState/updateState/dispatch —
 // on this Übersicht version (1.6.82), merely exporting initialState/updateState breaks
 // the plain-string `command` -> output pipeline (output stays permanently empty), even
 // if render() never uses dispatch. Confirmed by bisection against the working baseline.
+//
+// The API silently caps `period` at 7 days regardless of what's requested (verified:
+// period=8..27 all return the same 7 days as period=7), so covering NAV_BACK..NAV_FORWARD
+// needs several chained 7-day fetches, merged into one JSON array. Done in Python (stdlib
+// only, no curl loop) for straightforward date arithmetic and JSON handling.
 export const command = `
-START=$(date -v-${NAV_RANGE + 1}d +%F)
-curl -s --max-time 10 "https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate=$START&period=${NAV_RANGE * 2 + 3}"
+python3 -c "
+import json, urllib.request, datetime
+
+today = datetime.date.today()
+d = today - datetime.timedelta(days=${NAV_BACK + 1})
+end = today + datetime.timedelta(days=${NAV_FORWARD + 1})
+results = []
+while d <= end:
+    url = f'https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate={d.isoformat()}&period=7'
+    with urllib.request.urlopen(url, timeout=10) as r:
+        results.extend(json.load(r))
+    d += datetime.timedelta(days=7)
+print(json.dumps(results))
+"
 `;
 
 export const refreshFrequency = 5 * 60 * 1000; // 5 min: re-fetch data + move the "now" line
@@ -71,8 +89,8 @@ export const className = `
   .curve-fill { fill: url(#curveGrad); opacity: 0.35; }
   .point-pm { fill: #4fc3e0; }
   .point-bm { fill: #e0956b; }
-  .point-label { fill: #eaf4f8; font-size: 11px; font-weight: 700; }
-  .point-time { fill: #93b3c4; font-size: 9px; }
+  .point-label { fill: #93b3c4; font-size: 9px; }
+  .point-time { fill: #eaf4f8; font-size: 11px; font-weight: 700; }
   .now-line { stroke: #ff5252; stroke-width: 1.2; stroke-dasharray: 3 2; }
   .now-label { fill: #ff5252; font-size: 9px; font-weight: 700; }
   .error { color: #ff8a8a; font-size: 11px; }
@@ -91,7 +109,7 @@ function todayISO() {
 function getOffset() {
   try {
     const v = parseInt(window.localStorage.getItem('maree-faro-offset'), 10);
-    return Number.isFinite(v) ? Math.max(-NAV_RANGE, Math.min(NAV_RANGE, v)) : 0;
+    return Number.isFinite(v) ? Math.max(-NAV_BACK, Math.min(NAV_FORWARD, v)) : 0;
   } catch (e) { return 0; }
 }
 
@@ -267,7 +285,7 @@ function panelHtml(raw, offset) {
 // bypasses Übersicht's dispatch/updateState (broken on this version, see note above).
 if (typeof window !== 'undefined') {
   window.__mareeFaroNav = function (delta) {
-    const next = delta === 0 ? 0 : Math.max(-NAV_RANGE, Math.min(NAV_RANGE, getOffset() + delta));
+    const next = delta === 0 ? 0 : Math.max(-NAV_BACK, Math.min(NAV_FORWARD, getOffset() + delta));
     setOffset(next);
     const el = document.getElementById('maree-faro-root');
     if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, next);
