@@ -21,6 +21,8 @@ https://www.hidrografico.pt/hmapi/tidestation/?portID={PORTID}&startDate={YYYY-M
 
 Réponse JSON, un item par événement de marée (Preia-Mar / Baixa-Mar), plus quelques items phase lunaire (`height: null`) à ignorer.
 
+Couverture des données (vérifiée empiriquement, port 19) : du **01/01/2007** à fin **2027**. En dehors de cette plage, l'API répond 200 avec uniquement des items phase lunaire, sans marée.
+
 ## Problème CORS
 
 L'API ne renvoie pas d'en-tête `Access-Control-Allow-Origin`. Ouvrir l'URL directement dans un navigateur fonctionne (simple navigation, pas de contrôle CORS), mais un `fetch()` JS depuis un autre domaine échoue (`Failed to fetch`).
