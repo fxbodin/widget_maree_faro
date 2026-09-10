@@ -43,12 +43,33 @@ export const className = `
     box-shadow: 0 8px 24px rgba(0,0,0,0.35);
     color: #eaf4f8;
   }
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: move;
+    margin-bottom: 2px;
+  }
   h1 {
-    margin: 0 0 2px;
+    margin: 0;
     font-size: 15px;
     font-weight: 600;
     letter-spacing: 0.02em;
+    flex: 1;
   }
+  .collapse-btn {
+    background: transparent;
+    border: none;
+    color: #93b3c4;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 2px 4px;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .collapse-btn:hover { color: #4fc3e0; }
+  .body.collapsed { display: none; }
   .sub {
     color: #93b3c4;
     font-size: 10px;
@@ -115,6 +136,29 @@ function getOffset() {
 
 function setOffset(o) {
   try { window.localStorage.setItem('maree-faro-offset', String(o)); } catch (e) { /* ignore */ }
+}
+
+function getCollapsed() {
+  try { return window.localStorage.getItem('maree-faro-collapsed') === '1'; } catch (e) { return false; }
+}
+
+function setCollapsed(v) {
+  try { window.localStorage.setItem('maree-faro-collapsed', v ? '1' : '0'); } catch (e) { /* ignore */ }
+}
+
+// Dragged position, persisted as {left, top} px, overriding the default left/bottom
+// anchor from `className`. Absent until the widget is dragged once.
+function getPos() {
+  try {
+    const raw = window.localStorage.getItem('maree-faro-pos');
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    return (Number.isFinite(p.left) && Number.isFinite(p.top)) ? p : null;
+  } catch (e) { return null; }
+}
+
+function setPos(left, top) {
+  try { window.localStorage.setItem('maree-faro-pos', JSON.stringify({ left, top })); } catch (e) { /* ignore */ }
 }
 
 function parseEvents(raw, dateISO) {
@@ -258,55 +302,108 @@ function navHtml() {
     </div>`;
 }
 
-function titleHtml(dateISO) {
-  return `<h1>Marées — Barra de Faro-Olhão · ${dateLabel(dateISO)}</h1>`;
+function headerHtml(dateISO, collapsed) {
+  return `
+    <div class="header" onmousedown="window.__mareeFaroDragStart(event)">
+      <h1>Marées — Barra de Faro-Olhão · ${dateLabel(dateISO)}</h1>
+      <button class="collapse-btn" onmousedown="event.stopPropagation()" onclick="window.__mareeFaroToggleCollapse()">${collapsed ? '▸' : '▾'}</button>
+    </div>`;
 }
 
 const SOURCE_SUB = `<div class="sub">source hidrografico.pt</div>`;
 
-function panelHtml(raw, offset) {
+function bodyHtml(raw, offset) {
   const dateISO = isoWithOffset(offset);
-  const title = titleHtml(dateISO);
   const nav = navHtml();
   if (raw == null) {
-    return `${title}${SOURCE_SUB}<div class="sub">Chargement…</div>${nav}`;
+    return `${SOURCE_SUB}<div class="sub">Chargement…</div>${nav}`;
   }
   try {
     const allEvents = parseEvents(raw, dateISO);
     if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour cette date.');
     const svgHtml = buildChart(allEvents, dateISO);
-    return `${title}${SOURCE_SUB}${svgHtml}${nav}`;
+    return `${SOURCE_SUB}${svgHtml}${nav}`;
   } catch (e) {
-    return `${title}${SOURCE_SUB}<div class="error">Erreur : ${e.message}</div>${nav}`;
+    return `${SOURCE_SUB}<div class="error">Erreur : ${e.message}</div>${nav}`;
   }
 }
 
-// Click handler: recompute offset, persist it, re-render the panel directly via the DOM —
-// bypasses Übersicht's dispatch/updateState (broken on this version, see note above).
+function panelHtml(raw, offset, collapsed) {
+  const dateISO = isoWithOffset(offset);
+  const header = headerHtml(dateISO, collapsed);
+  const body = `<div class="body${collapsed ? ' collapsed' : ''}">${bodyHtml(raw, offset)}</div>`;
+  return `${header}${body}`;
+}
+
+function rerenderRoot() {
+  const el = document.getElementById('maree-faro-root');
+  if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, getOffset(), getCollapsed());
+}
+
+// Click/drag handlers bypass Übersicht's dispatch/updateState (broken on this version,
+// see note above) and just mutate the DOM + localStorage directly, then re-render.
 if (typeof window !== 'undefined') {
   window.__mareeFaroNav = function (delta) {
     const next = delta === 0 ? 0 : Math.max(-NAV_BACK, Math.min(NAV_FORWARD, getOffset() + delta));
     setOffset(next);
-    const el = document.getElementById('maree-faro-root');
-    if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, next);
+    rerenderRoot();
+  };
+
+  window.__mareeFaroToggleCollapse = function () {
+    setCollapsed(!getCollapsed());
+    rerenderRoot();
+  };
+
+  // Drag the whole widget by its header. Overrides the default left/bottom anchor
+  // (set in `className`) with an explicit left/top on the root element, persisted
+  // so it survives the periodic re-render (refreshFrequency) and app restarts.
+  window.__mareeFaroDragStart = function (e) {
+    e.preventDefault();
+    const root = document.getElementById('maree-faro-root');
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY;
+    const startLeft = rect.left, startTop = rect.top;
+    let moved = false;
+
+    function onMove(ev) {
+      moved = true;
+      const left = startLeft + (ev.clientX - startX);
+      const top = startTop + (ev.clientY - startY);
+      root.style.position = 'fixed';
+      root.style.left = left + 'px';
+      root.style.top = top + 'px';
+      root.style.bottom = 'auto';
+      root.style.right = 'auto';
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      if (moved) setPos(parseFloat(root.style.left), parseFloat(root.style.top));
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
   };
 }
 
 export const render = ({ output, error }) => {
   if (typeof window !== 'undefined') window.__mareeFaroRaw = null;
 
+  const pos = typeof window !== 'undefined' ? getPos() : null;
+  const posStyle = pos ? { position: 'fixed', left: pos.left + 'px', top: pos.top + 'px', bottom: 'auto', right: 'auto' } : undefined;
+
   if (error) {
     return (
-      <div className="panel">
-        <div dangerouslySetInnerHTML={{ __html: titleHtml(todayISO()) }} />
+      <div className="panel" style={posStyle}>
+        <div dangerouslySetInnerHTML={{ __html: headerHtml(todayISO(), false) }} />
         <div className="error">Erreur réseau : {String(error)}</div>
       </div>
     );
   }
   if (!output) {
     return (
-      <div className="panel">
-        <div dangerouslySetInnerHTML={{ __html: titleHtml(todayISO()) }} />
+      <div className="panel" style={posStyle}>
+        <div dangerouslySetInnerHTML={{ __html: headerHtml(todayISO(), false) }} />
         <div className="sub">Chargement…</div>
       </div>
     );
@@ -318,9 +415,10 @@ export const render = ({ output, error }) => {
   if (typeof window !== 'undefined') window.__mareeFaroRaw = raw;
 
   const offset = typeof window !== 'undefined' ? getOffset() : 0;
+  const collapsed = typeof window !== 'undefined' ? getCollapsed() : false;
   const innerHtml = raw == null
-    ? `${titleHtml(isoWithOffset(offset))}<div class="error">Erreur : réponse invalide.</div>`
-    : panelHtml(raw, offset);
+    ? `${headerHtml(isoWithOffset(offset), collapsed)}<div class="error">Erreur : réponse invalide.</div>`
+    : panelHtml(raw, offset, collapsed);
 
-  return <div id="maree-faro-root" className="panel" dangerouslySetInnerHTML={{ __html: innerHtml }} />;
+  return <div id="maree-faro-root" className="panel" style={posStyle} dangerouslySetInnerHTML={{ __html: innerHtml }} />;
 };
