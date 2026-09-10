@@ -1,6 +1,13 @@
+const NAV_RANGE = 3; // days navigable each side of today, bounded by the fetched window below
+
+// Widget fetches a wide static window; day navigation is handled entirely client-side
+// (plain DOM + localStorage), NOT via Übersicht's initialState/updateState/dispatch —
+// on this Übersicht version (1.6.82), merely exporting initialState/updateState breaks
+// the plain-string `command` -> output pipeline (output stays permanently empty), even
+// if render() never uses dispatch. Confirmed by bisection against the working baseline.
 export const command = `
-START=$(date -v-1d +%F)
-curl -s --max-time 10 "https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate=$START&period=3"
+START=$(date -v-${NAV_RANGE + 1}d +%F)
+curl -s --max-time 10 "https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate=$START&period=${NAV_RANGE * 2 + 3}"
 `;
 
 export const refreshFrequency = 5 * 60 * 1000; // 5 min: re-fetch data + move the "now" line
@@ -29,6 +36,34 @@ export const className = `
     font-size: 10px;
     margin-bottom: 8px;
   }
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .nav button {
+    background: #1c4d6e;
+    border: none;
+    color: #eaf4f8;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .nav button:hover { background: #4fc3e0; color: #0b2a3d; }
+  .nav .day-label {
+    flex: 1;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    user-select: none;
+  }
+  .nav .day-label:hover { color: #4fc3e0; }
   svg { width: 100%; height: auto; display: block; }
   .axis-label { fill: #93b3c4; font-size: 10px; }
   .grid-line { stroke: #1c4d6e; stroke-width: 1; }
@@ -43,9 +78,25 @@ export const className = `
   .error { color: #ff8a8a; font-size: 11px; }
 `;
 
-function todayISO() {
+function isoWithOffset(offset) {
   const d = new Date();
+  d.setDate(d.getDate() + offset);
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function todayISO() {
+  return isoWithOffset(0);
+}
+
+function getOffset() {
+  try {
+    const v = parseInt(window.localStorage.getItem('maree-faro-offset'), 10);
+    return Number.isFinite(v) ? Math.max(-NAV_RANGE, Math.min(NAV_RANGE, v)) : 0;
+  } catch (e) { return 0; }
+}
+
+function setOffset(o) {
+  try { window.localStorage.setItem('maree-faro-offset', String(o)); } catch (e) { /* ignore */ }
 }
 
 function parseEvents(raw, dateISO) {
@@ -168,7 +219,53 @@ function buildChart(allEvents, dateISO) {
   return `<svg viewBox="0 0 ${W} ${H}">${svg}</svg>`;
 }
 
+function dayLabel(offset, dateISO) {
+  if (offset === 0) return "Aujourd'hui";
+  if (offset === -1) return 'Hier';
+  if (offset === 1) return 'Demain';
+  const [, m, d] = dateISO.split('-');
+  return `${d}/${m}`;
+}
+
+function navHtml(offset, dateISO) {
+  return `
+    <div class="nav">
+      <button onclick="window.__mareeFaroNav(-1)">‹</button>
+      <div class="day-label" onclick="window.__mareeFaroNav(0)">${dayLabel(offset, dateISO)}</div>
+      <button onclick="window.__mareeFaroNav(1)">›</button>
+    </div>`;
+}
+
+function panelHtml(raw, offset) {
+  const dateISO = isoWithOffset(offset);
+  const nav = navHtml(offset, dateISO);
+  if (raw == null) {
+    return `<h1>Marées — Faro-Olhão</h1>${nav}<div class="sub">Chargement…</div>`;
+  }
+  try {
+    const allEvents = parseEvents(raw, dateISO);
+    if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour cette date.');
+    const svgHtml = buildChart(allEvents, dateISO);
+    return `<h1>Marées — Faro-Olhão</h1>${nav}${svgHtml}`;
+  } catch (e) {
+    return `<h1>Marées — Faro-Olhão</h1>${nav}<div class="error">Erreur : ${e.message}</div>`;
+  }
+}
+
+// Click handler: recompute offset, persist it, re-render the panel directly via the DOM —
+// bypasses Übersicht's dispatch/updateState (broken on this version, see note above).
+if (typeof window !== 'undefined') {
+  window.__mareeFaroNav = function (delta) {
+    const next = delta === 0 ? 0 : Math.max(-NAV_RANGE, Math.min(NAV_RANGE, getOffset() + delta));
+    setOffset(next);
+    const el = document.getElementById('maree-faro-root');
+    if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, next);
+  };
+}
+
 export const render = ({ output, error }) => {
+  if (typeof window !== 'undefined') window.__mareeFaroRaw = null;
+
   if (error) {
     return (
       <div className="panel">
@@ -185,25 +282,16 @@ export const render = ({ output, error }) => {
       </div>
     );
   }
-  try {
-    const dateISO = todayISO();
-    const raw = JSON.parse(output);
-    const allEvents = parseEvents(raw, dateISO);
-    if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour aujourd\'hui.');
-    const svgHtml = buildChart(allEvents, dateISO);
-    return (
-      <div className="panel">
-        <h1>Marées — Faro-Olhão</h1>
-        <div className="sub">Barra de Faro-Olhão</div>
-        <div dangerouslySetInnerHTML={{ __html: svgHtml }} />
-      </div>
-    );
-  } catch (e) {
-    return (
-      <div className="panel">
-        <h1>Marées — Faro-Olhão</h1>
-        <div className="error">Erreur : {e.message}</div>
-      </div>
-    );
-  }
+
+  let raw = null;
+  try { raw = JSON.parse(output); } catch (e) { /* handled by panelHtml via null check below */ }
+
+  if (typeof window !== 'undefined') window.__mareeFaroRaw = raw;
+
+  const offset = typeof window !== 'undefined' ? getOffset() : 0;
+  const innerHtml = raw == null
+    ? `<h1>Marées — Faro-Olhão</h1><div class="error">Erreur : réponse invalide.</div>`
+    : panelHtml(raw, offset);
+
+  return <div id="maree-faro-root" className="panel" dangerouslySetInnerHTML={{ __html: innerHtml }} />;
 };
