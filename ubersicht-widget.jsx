@@ -41,7 +41,7 @@ export const className = `
     align-items: center;
     justify-content: center;
     gap: 10px;
-    margin-bottom: 6px;
+    margin-top: 8px;
   }
   .nav button {
     background: #1c4d6e;
@@ -56,7 +56,7 @@ export const className = `
   }
   .nav button:hover { background: #4fc3e0; color: #0b2a3d; }
   .nav .day-label {
-    flex: 1;
+    min-width: 90px;
     text-align: center;
     font-size: 12px;
     font-weight: 600;
@@ -219,36 +219,47 @@ function buildChart(allEvents, dateISO) {
   return `<svg viewBox="0 0 ${W} ${H}">${svg}</svg>`;
 }
 
-function dayLabel(offset, dateISO) {
-  if (offset === 0) return "Aujourd'hui";
-  if (offset === -1) return 'Hier';
-  if (offset === 1) return 'Demain';
-  const [, m, d] = dateISO.split('-');
-  return `${d}/${m}`;
+const WEEKDAYS = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+
+// Always the real calendar date being shown — never replaced by "Hier"/"Demain",
+// so the displayed tide's date is unambiguous regardless of how you got there.
+function dateLabel(dateISO) {
+  const [y, m, d] = dateISO.split('-').map(Number);
+  const wd = WEEKDAYS[new Date(y, m - 1, d).getDay()];
+  return `${wd} ${String(d).padStart(2,'0')}/${String(m).padStart(2,'0')}`;
 }
 
-function navHtml(offset, dateISO) {
+// Center label is always the literal "Aujourd'hui" — persistent, always clickable
+// to jump back to today, never replaced by the displayed date (shown in the subtitle instead).
+function navHtml() {
   return `
     <div class="nav">
       <button onclick="window.__mareeFaroNav(-1)">‹</button>
-      <div class="day-label" onclick="window.__mareeFaroNav(0)">${dayLabel(offset, dateISO)}</div>
+      <div class="day-label" onclick="window.__mareeFaroNav(0)">Aujourd'hui</div>
       <button onclick="window.__mareeFaroNav(1)">›</button>
     </div>`;
 }
 
+function titleHtml(dateISO) {
+  return `<h1>Marées — Barra de Faro-Olhão · ${dateLabel(dateISO)}</h1>`;
+}
+
+const SOURCE_SUB = `<div class="sub">source hidrografico.pt</div>`;
+
 function panelHtml(raw, offset) {
   const dateISO = isoWithOffset(offset);
-  const nav = navHtml(offset, dateISO);
+  const title = titleHtml(dateISO);
+  const nav = navHtml();
   if (raw == null) {
-    return `<h1>Marées — Faro-Olhão</h1>${nav}<div class="sub">Chargement…</div>`;
+    return `${title}${SOURCE_SUB}<div class="sub">Chargement…</div>${nav}`;
   }
   try {
     const allEvents = parseEvents(raw, dateISO);
     if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour cette date.');
     const svgHtml = buildChart(allEvents, dateISO);
-    return `<h1>Marées — Faro-Olhão</h1>${nav}${svgHtml}`;
+    return `${title}${SOURCE_SUB}${svgHtml}${nav}`;
   } catch (e) {
-    return `<h1>Marées — Faro-Olhão</h1>${nav}<div class="error">Erreur : ${e.message}</div>`;
+    return `${title}${SOURCE_SUB}<div class="error">Erreur : ${e.message}</div>${nav}`;
   }
 }
 
@@ -269,7 +280,7 @@ export const render = ({ output, error }) => {
   if (error) {
     return (
       <div className="panel">
-        <h1>Marées — Faro-Olhão</h1>
+        <div dangerouslySetInnerHTML={{ __html: titleHtml(todayISO()) }} />
         <div className="error">Erreur réseau : {String(error)}</div>
       </div>
     );
@@ -277,7 +288,7 @@ export const render = ({ output, error }) => {
   if (!output) {
     return (
       <div className="panel">
-        <h1>Marées — Faro-Olhão</h1>
+        <div dangerouslySetInnerHTML={{ __html: titleHtml(todayISO()) }} />
         <div className="sub">Chargement…</div>
       </div>
     );
@@ -290,7 +301,7 @@ export const render = ({ output, error }) => {
 
   const offset = typeof window !== 'undefined' ? getOffset() : 0;
   const innerHtml = raw == null
-    ? `<h1>Marées — Faro-Olhão</h1><div class="error">Erreur : réponse invalide.</div>`
+    ? `${titleHtml(isoWithOffset(offset))}<div class="error">Erreur : réponse invalide.</div>`
     : panelHtml(raw, offset);
 
   return <div id="maree-faro-root" className="panel" dangerouslySetInnerHTML={{ __html: innerHtml }} />;
