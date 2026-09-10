@@ -1,5 +1,7 @@
 # Widget marées — Faro-Olhão
 
+Soumis à la [galerie de widgets Übersicht](https://github.com/felixhageloh/uebersicht-widgets) — `widget.json`, `maree-faro.widget.zip` et `screenshot.png` (516×320) sont les fichiers requis par leur processus de soumission (issue avec l'URL de ce repo, pas de PR directe).
+
 Page HTML autonome affichant graphiquement l'horaire des marées de Faro-Olhão (Portugal), avec sélecteur de date et ligne "agora" (heure locale) quand la date affichée est le jour courant.
 
 ## Fichiers
