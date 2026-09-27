@@ -59,3 +59,5 @@ python3 -m http.server 8000
 ```
 
 puis `http://localhost:8000/index.html`.
+
+Note : the widget shells out to python3, which isn't on macOS by default
