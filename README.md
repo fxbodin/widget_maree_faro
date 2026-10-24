@@ -44,6 +44,17 @@ Le widget garde des dimensions constantes quel que soit le jour affiché :
 - Le panneau a une largeur fixée en dur (`400px`) sur l'élément réellement rendu (`.panel`), pas seulement sur le conteneur externe géré par Übersicht — sinon il se redimensionne au contenu le plus large (le titre) et dérive de quelques pixels selon les caractères.
 - Le titre ne passe jamais à la ligne (`white-space: nowrap` + `text-overflow: ellipsis`), ce qui évite qu'une hauteur d'en-tête à une ligne certains jours et deux lignes d'autres jours ne fasse varier la hauteur totale.
 
+## Widget Übersicht — résilience aux pannes de la source
+
+Le 25/10/2026, tout le backend `hmapi` d'hidrografico.pt est tombé (HTTP 500 sur `tidestation`, 502 sur les autres endpoints), alors que le site principal répondait. Le widget affichait alors la trace Python brute.
+
+Depuis :
+- Le script sort toujours un JSON `{status, fetchedAt, error, data}` avec code de sortie 0 — jamais de traceback à l'écran.
+- Chaque récupération réussie est mise en cache dans `~/Library/Caches/maree-faro/tides.json`.
+- En cas d'échec, le cache est servi (`status: stale`) et la ligne "source" devient orange : `hidrografico.pt indisponible (HTTP 500) · données du 24/10 14:32`. Comme le widget charge ~25 jours d'avance, une panne de plusieurs jours reste invisible à l'usage.
+- Sans cache (premier lancement pendant une panne) : message explicite, réessai automatique toutes les 5 min.
+- Le bandeau remplace la ligne "source" au lieu de s'ajouter, pour ne pas changer la hauteur du widget.
+
 ## Widget Übersicht — pièges rencontrés
 
 - **`command` en fonction de state = piégé.** Sur la version installée (1.6.82), simplement exporter `initialState`/`updateState` casse silencieusement le pipeline `command` (string) → `output` : `output` reste vide en permanence, sans erreur visible, même si `render()` n'utilise jamais `dispatch`. La doc générique d'Übersicht dit que les deux mécanismes cohabitent ; pas vérifié sur cette version. Solution retenue : navigation de jour gérée entièrement côté client (DOM + `localStorage`), sans passer par `initialState`/`updateState`/`dispatch`.

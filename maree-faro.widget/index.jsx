@@ -11,20 +11,49 @@ const NAV_FORWARD = 21; // days navigable into the future
 // period=8..27 all return the same 7 days as period=7), so covering NAV_BACK..NAV_FORWARD
 // needs several chained 7-day fetches, merged into one JSON array. Done in Python (stdlib
 // only, no curl loop) for straightforward date arithmetic and JSON handling.
+//
+// The script always exits 0 and prints a JSON envelope {status, fetchedAt, error, data}:
+// a non-zero exit would surface as a raw Python traceback in the widget. Each successful
+// fetch is cached to disk; when the source fails (it went fully down with HTTP 500/502 on
+// 2026-10-25), the last good response is served instead, flagged status='stale'. Since
+// the fetch covers ~25 days ahead, a multi-day outage stays invisible in normal use.
+// The Python code must not contain double quotes, $ or backticks (shell + JS template).
 export const command = `
 python3 -c "
-import json, urllib.request, datetime
+import json, os, urllib.request, urllib.error, datetime
 
+cache = os.path.expanduser('~/Library/Caches/maree-faro/tides.json')
 today = datetime.date.today()
 d = today - datetime.timedelta(days=${NAV_BACK + 1})
 end = today + datetime.timedelta(days=${NAV_FORWARD + 1})
-results = []
-while d <= end:
-    url = f'https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate={d.isoformat()}&period=7'
-    with urllib.request.urlopen(url, timeout=10) as r:
-        results.extend(json.load(r))
-    d += datetime.timedelta(days=7)
-print(json.dumps(results))
+
+def short(e):
+    if isinstance(e, urllib.error.HTTPError):
+        return 'HTTP ' + str(e.code)
+    if isinstance(e, urllib.error.URLError):
+        return 'réseau injoignable'
+    return type(e).__name__
+
+try:
+    results = []
+    while d <= end:
+        url = f'https://www.hidrografico.pt/hmapi/tidestation/?portID=19&startDate={d.isoformat()}&period=7'
+        with urllib.request.urlopen(url, timeout=10) as r:
+            results.extend(json.load(r))
+        d += datetime.timedelta(days=7)
+    out = {'status': 'ok', 'fetchedAt': datetime.datetime.now().isoformat(timespec='minutes'), 'error': None, 'data': results}
+    os.makedirs(os.path.dirname(cache), exist_ok=True)
+    with open(cache, 'w') as f:
+        json.dump(out, f)
+except Exception as e:
+    try:
+        with open(cache) as f:
+            out = json.load(f)
+        out['status'] = 'stale'
+        out['error'] = short(e)
+    except Exception:
+        out = {'status': 'error', 'fetchedAt': None, 'error': short(e), 'data': None}
+print(json.dumps(out))
 "
 `;
 
@@ -84,7 +113,11 @@ export const className = `
     color: #93b3c4;
     font-size: 10px;
     margin-bottom: 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
+  .sub.stale { color: #e0a84f; }
   .nav {
     display: flex;
     align-items: center;
@@ -327,34 +360,56 @@ function headerHtml(dateISO, collapsed) {
     </div>`;
 }
 
-const SOURCE_SUB = `<div class="sub">source hidrografico.pt</div>`;
+// "2026-10-24T14:32" -> "24/10 14:32"
+function formatFetchedAt(iso) {
+  if (!iso) return '?';
+  const [date, time] = iso.split('T');
+  const [, m, d] = date.split('-');
+  return `${d}/${m} ${time || ''}`.trim();
+}
 
-function bodyHtml(raw, offset) {
+// Same single line in every state (normal / cached / error), so a source outage never
+// changes the widget's height.
+function sourceSubHtml(meta) {
+  if (meta && meta.status === 'stale') {
+    return `<div class="sub stale">hidrografico.pt indisponible (${meta.error}) · données du ${formatFetchedAt(meta.fetchedAt)}</div>`;
+  }
+  if (meta && meta.status === 'error') {
+    return `<div class="sub stale">hidrografico.pt indisponible (${meta.error}) · réessai toutes les 5 min</div>`;
+  }
+  return `<div class="sub">source hidrografico.pt</div>`;
+}
+
+function bodyHtml(raw, offset, meta) {
   const dateISO = isoWithOffset(offset);
   const nav = navHtml();
+  const sub = sourceSubHtml(meta);
+  if (meta && meta.status === 'error') {
+    return `${sub}<div class="error">Aucune donnée en cache pour l'instant.</div>${nav}`;
+  }
   if (raw == null) {
-    return `${SOURCE_SUB}<div class="sub">Chargement…</div>${nav}`;
+    return `${sub}<div class="sub">Chargement…</div>${nav}`;
   }
   try {
     const allEvents = parseEvents(raw, dateISO);
     if (!allEvents.some(e => e.isTarget)) throw new Error('Aucune donnée pour cette date.');
     const svgHtml = buildChart(allEvents, dateISO, globalYRange(allEvents));
-    return `${SOURCE_SUB}${svgHtml}${nav}`;
+    return `${sub}${svgHtml}${nav}`;
   } catch (e) {
-    return `${SOURCE_SUB}<div class="error">Erreur : ${e.message}</div>${nav}`;
+    return `${sub}<div class="error">Erreur : ${e.message}</div>${nav}`;
   }
 }
 
-function panelHtml(raw, offset, collapsed) {
+function panelHtml(raw, offset, collapsed, meta) {
   const dateISO = isoWithOffset(offset);
   const header = headerHtml(dateISO, collapsed);
-  const body = `<div class="body${collapsed ? ' collapsed' : ''}">${bodyHtml(raw, offset)}</div>`;
+  const body = `<div class="body${collapsed ? ' collapsed' : ''}">${bodyHtml(raw, offset, meta)}</div>`;
   return `${header}${body}`;
 }
 
 function rerenderRoot() {
   const el = document.getElementById('maree-faro-root');
-  if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, getOffset(), getCollapsed());
+  if (el) el.innerHTML = panelHtml(window.__mareeFaroRaw, getOffset(), getCollapsed(), window.__mareeFaroMeta);
 }
 
 // Click/drag handlers bypass Übersicht's dispatch/updateState (broken on this version,
@@ -419,11 +474,14 @@ export const render = ({ output, error }) => {
   const pos = typeof window !== 'undefined' ? getPos() : null;
   const posStyle = pos ? { position: 'fixed', left: pos.left + 'px', top: pos.top + 'px', bottom: 'auto', right: 'auto' } : undefined;
 
+  // Only reached if the script itself fails to run (e.g. python3 missing) — source
+  // outages are handled inside the script. Show the last traceback line, not all of it.
   if (error) {
+    const lastLine = String(error).trim().split('\n').pop();
     return (
       <div className="panel" style={posStyle}>
         <div dangerouslySetInnerHTML={{ __html: headerHtml(todayISO(), false) }} />
-        <div className="error">Erreur réseau : {String(error)}</div>
+        <div className="error">Erreur du script : {lastLine}</div>
       </div>
     );
   }
@@ -436,16 +494,22 @@ export const render = ({ output, error }) => {
     );
   }
 
-  let raw = null;
-  try { raw = JSON.parse(output); } catch (e) { /* handled by panelHtml via null check below */ }
+  let envelope = null;
+  try { envelope = JSON.parse(output); } catch (e) { /* handled below */ }
 
-  if (typeof window !== 'undefined') window.__mareeFaroRaw = raw;
+  const raw = envelope ? envelope.data : null;
+  const meta = envelope ? { status: envelope.status, fetchedAt: envelope.fetchedAt, error: envelope.error } : null;
+
+  if (typeof window !== 'undefined') {
+    window.__mareeFaroRaw = raw;
+    window.__mareeFaroMeta = meta;
+  }
 
   const offset = typeof window !== 'undefined' ? getOffset() : 0;
   const collapsed = typeof window !== 'undefined' ? getCollapsed() : false;
-  const innerHtml = raw == null
+  const innerHtml = envelope == null
     ? `${headerHtml(isoWithOffset(offset), collapsed)}<div class="error">Erreur : réponse invalide.</div>`
-    : panelHtml(raw, offset, collapsed);
+    : panelHtml(raw, offset, collapsed, meta);
 
   return <div id="maree-faro-root" className="panel" style={posStyle} dangerouslySetInnerHTML={{ __html: innerHtml }} />;
 };
