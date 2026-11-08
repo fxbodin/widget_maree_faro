@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Marées Faro</title>
+<meta name="description" content="Marées de la Barra de Faro-Olhão (Instituto Hidrográfico), consultables hors ligne.">
+<meta name="theme-color" content="#0b2a3d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Marées">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<main id="app">
+  <header>
+    <h1>Marées · Barra de Faro-Olhão</h1>
+    <div id="date" class="date">…</div>
+    <div id="next" class="next"></div>
+  </header>
+  <section id="chart" class="chart" aria-label="Courbe de marée du jour"></section>
+  <section id="list" class="list" aria-label="Pleines et basses mers"></section>
+  <div id="status" class="status">Chargement…</div>
+  <nav class="nav">
+    <button id="prev" type="button" aria-label="Jour précédent">‹</button>
+    <button id="today" type="button" class="today">Aujourd'hui</button>
+    <button id="nextDay" type="button" aria-label="Jour suivant">›</button>
+  </nav>
+</main>
+<script src="app.js"></script>
+</body>
+</html>

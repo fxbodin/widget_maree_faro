@@ -1,0 +1,78 @@
+name: Déploiement OVH
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-ovh
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Vérifier le dossier distant
+        env:
+          OVH_REMOTE_DIR: ${{ vars.OVH_REMOTE_DIR || secrets.OVH_REMOTE_DIR }}
+        run: |
+          DIR="${OVH_REMOTE_DIR:-www/nautical-apps/maree-faro}"
+          case "$DIR" in
+            */nautical-apps/maree-faro) ;;
+            *) echo "OVH_REMOTE_DIR doit finir par /nautical-apps/maree-faro (valeur: $DIR)"; exit 1 ;;
+          esac
+          echo "OVH_REMOTE_DIR=$DIR" >> "$GITHUB_ENV"
+
+      - name: Installer lftp
+        run: sudo apt-get update && sudo apt-get install -y lftp
+
+      - name: Clé d'hôte SSH
+        env:
+          OVH_KNOWN_HOSTS: ${{ secrets.OVH_KNOWN_HOSTS }}
+        run: |
+          if [ -n "$OVH_KNOWN_HOSTS" ]; then
+            mkdir -p ~/.ssh && printf '%s\n' "$OVH_KNOWN_HOSTS" > ~/.ssh/known_hosts && chmod 600 ~/.ssh/known_hosts
+            echo "AUTO_CONFIRM=no" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Secret OVH_KNOWN_HOSTS absent : clé d'hôte acceptée sans vérification."
+            echo "AUTO_CONFIRM=yes" >> "$GITHUB_ENV"
+          fi
+
+      # --exclude cache/ : le cache serveur de tides.php vit sur OVH, --delete ne doit pas l'effacer
+      - name: Déployer via lftp
+        env:
+          OVH_HOST: ${{ secrets.OVH_HOST }}
+          OVH_USER: ${{ secrets.OVH_USER }}
+          LFTP_PASSWORD: ${{ secrets.OVH_PASSWORD }}   # lu par open --env-password : absent de la ligne de commande
+          OVH_PROTOCOL: ${{ vars.OVH_PROTOCOL || secrets.OVH_PROTOCOL }}
+        run: |
+          PROTO="${OVH_PROTOCOL:-sftp}"
+          [ "$PROTO" = ftp ] && echo "::warning::Protocole FTP : identifiants en clair si le serveur refuse TLS. Préférer sftp."
+          lftp -c "
+          set sftp:auto-confirm $AUTO_CONFIRM;
+          set ftp:ssl-allow yes;
+          set net:max-retries 3;
+          set net:timeout 30;
+          open --env-password -u \"$OVH_USER\" ${PROTO}://${OVH_HOST};
+          mirror -R --delete --verbose --exclude cache/ ./web ${OVH_REMOTE_DIR}
+          "
+
+      - name: Vérifier le relai en ligne
+        run: |
+          sleep 5
+          curl -fsS https://www.fxbodin.com/nautical-apps/maree-faro/tides.php | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          n = len([e for e in (d.get('data') or []) if e.get('tide')])
+          print('status', d['status'], '| marées', n, '| erreur', d['error'])
+          sys.exit(0 if d['status'] in ('ok', 'stale') and n > 0 else 1)
+          "

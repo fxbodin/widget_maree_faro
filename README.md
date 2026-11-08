@@ -9,6 +9,18 @@ Page HTML autonome affichant graphiquement l'horaire des marées de Faro-Olhão 
 - `index.html` — page autonome, pas de dépendance de build, ouvrir directement ou servir statiquement.
 - `ubersicht-widget.jsx` — widget de bureau pour [Übersicht](http://tracesof.net/uebersicht/) (`brew install --cask ubersicht`). Copier dans `~/Library/Application Support/Übersicht/widgets/maree-faro.widget/index.jsx`. Contourne le CORS en récupérant les données via `curl` (process shell, pas de fetch navigateur) plutôt que via le proxy `r.jina.ai` utilisé par la page HTML.
 
+## Version iPhone (PWA) — `web/`
+
+En ligne : https://www.fxbodin.com/nautical-apps/maree-faro/ — dans Safari : Partager → « Sur l'écran d'accueil ». L'icône ouvre l'app en plein écran, sans barre Safari.
+
+- `web/tides.php` — relai same-origin vers l'API (règle le CORS, supprime la dépendance à `r.jina.ai`). Aucun paramètre accepté : pas un proxy ouvert. Même enveloppe JSON que le widget Übersicht (`{status, fetchedAt, error, data}`), même fenêtre -3/+21 jours. Cache disque `web/cache/` sur OVH (6 h) ; source en panne : cache resservi en `stale`, nouvel essai au plus toutes les 15 min.
+- `web/index.html`, `app.js`, `app.css` — page mobile : courbe (même code que le widget), cartes PM/BM, « Pleine mer dans 2 h 15 », navigation par boutons ou balayage.
+- `web/sw.js` — service worker : la coquille de l'app se lance sans réseau. Les données sont gardées par `app.js` dans `localStorage` : hors ligne, l'app affiche les ~3 semaines déjà chargées (« Hors ligne · données du … »). Incrémenter `VERSION` dans `sw.js` si la liste des fichiers change.
+- `web/.htaccess` — `DirectoryIndex index.html` (le WordPress parent impose `index.php`), CSP stricte (tout en same-origin), cache Apache `no-cache`, `cache/` en 404.
+- « Aujourd'hui » et la ligne « maintenant » sont calculés à l'heure de Lisbonne, pas à celle du téléphone.
+
+Déploiement : `.github/workflows/deploy-ovh.yml`, même schéma que `carte-orques-iberiques` (lftp/SFTP à chaque push sur `web/**`, `--exclude cache/` pour préserver le cache serveur, puis contrôle de `tides.php` en ligne). Secrets du dépôt : `OVH_HOST`, `OVH_USER`, `OVH_PASSWORD`, `OVH_KNOWN_HOSTS` (recommandé). `OVH_REMOTE_DIR` facultatif, défaut `www/nautical-apps/maree-faro`, doit finir par `/nautical-apps/maree-faro`.
+
 ## Source des données
 
 API publique de l'Instituto Hidrográfico (marine portugaise) :
