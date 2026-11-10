@@ -1,15 +1,15 @@
 <!doctype html>
-<html lang="fr">
+<html lang="pt-PT">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Marées Faro</title>
-<meta name="description" content="Marées de la Barra de Faro-Olhão (Instituto Hidrográfico), consultables hors ligne.">
+<title>Marés Faro</title>
+<meta name="description" content="Marés da Barra de Faro-Olhão (Instituto Hidrográfico), disponíveis sem rede.">
 <meta name="theme-color" content="#0b2a3d">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Marées">
+<meta name="apple-mobile-web-app-title" content="Marés">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
@@ -18,19 +18,69 @@
 <body>
 <main id="app">
   <header>
-    <h1>Marées · Barra de Faro-Olhão</h1>
+    <div class="top">
+      <h1>Marés · Barra de Faro-Olhão</h1>
+      <button id="installChip" type="button" class="chip" hidden>Instalar</button>
+      <button id="infoBtn" type="button" class="icon-btn" aria-label="Informações">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.5v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="7.3" r="1.2" fill="currentColor"/></svg>
+      </button>
+    </div>
     <div id="date" class="date">…</div>
     <div id="next" class="next"></div>
   </header>
-  <section id="chart" class="chart" aria-label="Courbe de marée du jour"></section>
-  <section id="list" class="list" aria-label="Pleines et basses mers"></section>
-  <div id="status" class="status">Chargement…</div>
+  <section id="chart" class="chart" aria-label="Curva da maré do dia"></section>
+  <section id="list" class="list" aria-label="Preia-mar e baixa-mar"></section>
+  <div id="status" class="status">A carregar…</div>
+
+  <aside id="installCard" class="install-card" hidden>
+    <div class="install-head">
+      <div id="installTitle" class="title"></div>
+      <button id="installLater" type="button" class="link">Agora não</button>
+    </div>
+    <div class="install-row">
+      <div id="installBody"></div>
+      <button id="installGo" type="button" class="primary" hidden>Instalar</button>
+    </div>
+  </aside>
+
   <nav class="nav">
-    <button id="prev" type="button" aria-label="Jour précédent">‹</button>
-    <button id="today" type="button" class="today">Aujourd'hui</button>
-    <button id="nextDay" type="button" aria-label="Jour suivant">›</button>
+    <button id="prev" type="button" aria-label="Dia anterior">‹</button>
+    <button id="today" type="button" class="today">Hoje</button>
+    <button id="nextDay" type="button" aria-label="Dia seguinte">›</button>
   </nav>
 </main>
+
+<section id="info" class="info" hidden aria-labelledby="infoTitle">
+  <div class="info-inner">
+    <div class="info-top">
+      <button id="infoClose" type="button" class="back">‹ Voltar</button>
+    </div>
+    <h2 id="infoTitle">Informações</h2>
+
+    <button id="shareBtn" type="button" class="primary wide">Partilhar a app</button>
+    <div id="shareMsg" class="hint"></div>
+
+    <h3>Como instalar</h3>
+    <details id="howIos">
+      <summary>iPhone</summary>
+      <div class="steps" data-steps="ios"></div>
+    </details>
+    <details id="howAndroid">
+      <summary>Android</summary>
+      <div class="steps" data-steps="android"></div>
+    </details>
+
+    <h3>Dados</h3>
+    <p>Previsões do <b>Instituto Hidrográfico</b> (Marinha Portuguesa) para a Barra de Faro-Olhão, de 3 dias antes a 21 dias depois de hoje. Ficam guardadas no telemóvel e podem ser consultadas sem rede.</p>
+    <p id="infoData" class="hint"></p>
+    <button id="refreshBtn" type="button" class="ghost wide">Atualizar</button>
+    <p class="hint">Horas tal como publicadas pelo Instituto Hidrográfico. Linha vermelha: hora atual em Portugal continental.</p>
+
+    <h3>Aviso</h3>
+    <p>Previsões indicativas. Não substituem as publicações oficiais do Instituto Hidrográfico para a navegação.</p>
+    <p class="hint">Versão 2</p>
+  </div>
+</section>
 <script src="app.js"></script>
 </body>
 </html>

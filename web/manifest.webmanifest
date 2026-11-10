@@ -1,8 +1,8 @@
 {
-  "name": "Marées Faro-Olhão",
-  "short_name": "Marées",
-  "description": "Marées de la Barra de Faro-Olhão (Instituto Hidrográfico)",
-  "lang": "fr",
+  "name": "Marés Faro-Olhão",
+  "short_name": "Marés",
+  "description": "Marés da Barra de Faro-Olhão (Instituto Hidrográfico)",
+  "lang": "pt-PT",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

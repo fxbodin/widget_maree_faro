@@ -1,7 +1,7 @@
 // Coquille de l'app disponible hors ligne (en mer). Les données sont gardées par app.js
 // (localStorage) : tides.php n'est jamais mis en cache ici, pour ne pas masquer une panne.
 // Incrémenter VERSION à chaque modification des fichiers listés.
-const VERSION = 'maree-faro-v1';
+const VERSION = 'maree-faro-v2';
 const SHELL = ['./', 'index.html', 'app.js', 'app.css', 'manifest.webmanifest',
   'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png'];
 

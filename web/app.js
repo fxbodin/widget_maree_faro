@@ -1,22 +1,35 @@
-// Marées Faro-Olhão, version iPhone (PWA). Logique de courbe reprise du widget Übersicht
-// (ubersicht-widget.jsx) ; données via tides.php (même origine, pas de CORS, cache serveur).
+// Marés Faro-Olhão, versão telemóvel (PWA). Lógica da curva retomada do widget Übersicht
+// (ubersicht-widget.jsx) ; dados via tides.php (mesma origem, sem CORS, cache no servidor).
 'use strict';
 
 const NAV_BACK = 3;
 const NAV_FORWARD = 21;
-const TZ = 'Europe/Lisbon';            // "aujourd'hui" et ligne "maintenant" au port, pas au téléphone
+const TZ = 'Europe/Lisbon';            // "hoje" e linha "agora" à hora do porto, não à do telemóvel
 const DATA_URL = 'tides.php';
+const APP_URL = 'https://www.fxbodin.com/nautical-apps/maree-faro/';
 const STORE_KEY = 'maree-faro-envelope';
-const REFRESH_MS = 30 * 60 * 1000;     // relecture du flux au retour dans l'app
-const RESET_MS = 30 * 60 * 1000;       // retour à "aujourd'hui" après 30 min en arrière-plan
+const DISMISS_KEY = 'maree-faro-install-dismissed';
+const REFRESH_MS = 30 * 60 * 1000;     // releitura dos dados ao voltar à app
+const RESET_MS = 30 * 60 * 1000;       // volta a "hoje" após 30 min em segundo plano
 
 let envelope = null;   // {status, fetchedAt, error, data}
-let offline = null;    // message si le dernier appel réseau a échoué
+let offline = null;    // motivo, se a última chamada de rede falhou
 let offset = 0;
 let lastFetch = 0;
 let hiddenAt = 0;
 
-// ---------- dates au fuseau du port ----------
+// ---------- plataforma ----------
+
+const UA = navigator.userAgent;
+const isIOS = /iPad|iPhone|iPod/.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isAndroid = /Android/i.test(UA);
+// Navegadores internos (Facebook, Instagram…) e WebView Android: instalação impossível, abrir no navegador
+const inAppIOS = isIOS && /FBAN|FBAV|Instagram|LinkedInApp|Line\//.test(UA);
+const inAppAndroid = isAndroid && (/; wv\)/.test(UA) || /FBAN|FBAV|Instagram/.test(UA));
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+let deferredPrompt = null;   // Android Chrome : instalação nativa num toque
+
+// ---------- datas à hora do porto ----------
 
 const partsFmt = new Intl.DateTimeFormat('en-CA', {
   timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -28,14 +41,13 @@ function portNow() {
 }
 function isoPlus(iso, days) {
   const [y, m, d] = iso.split('-').map(Number);
-  const t = new Date(Date.UTC(y, m - 1, d + days));
-  return t.toISOString().slice(0, 10);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
 }
 function utcDay(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return Date.UTC(y, m - 1, d);
 }
-const WEEKDAYS = ['dim', 'lun', 'mar', 'mer', 'jeu', 'ven', 'sam'];
+const WEEKDAYS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 function dateLabel(iso) {
   const [y, m, d] = iso.split('-').map(Number);
   return `${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]} ${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}`;
@@ -46,9 +58,11 @@ function fmtFetchedAt(iso) {
   const [, m, d] = date.split('-');
   return `${d}/${m} ${time || ''}`.trim();
 }
-const fmtH = h => h.toFixed(2).replace('.', ',') + ' m';
+const num = h => h.toFixed(2).replace('.', ',');
+const fmtH = h => num(h) + ' m';
+const TIDE_NAME = { PM: 'Preia-mar', BM: 'Baixa-mar' };
 
-// ---------- données ----------
+// ---------- dados ----------
 
 function parseEvents(raw, dateISO) {
   const ref = utcDay(dateISO);
@@ -68,7 +82,7 @@ function parseEvents(raw, dateISO) {
     .sort((a, b) => a.minutes - b.minutes);
 }
 
-// Interpolation cubique monotone (Fritsch-Carlson)
+// Interpolação cúbica monótona (Fritsch-Carlson)
 function monotoneCubicSpline(points) {
   const n = points.length;
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
@@ -101,7 +115,7 @@ function monotoneCubicSpline(points) {
   };
 }
 
-// Échelle verticale fixe sur toute la fenêtre chargée : la courbe garde la même hauteur d'un jour à l'autre
+// Escala vertical fixa em toda a janela carregada : a curva mantém a mesma altura de um dia para o outro
 function globalYRange(all) {
   const hs = all.map(e => e.height).filter(h => h != null);
   const minH = Math.min(...hs, 0), maxH = Math.max(...hs);
@@ -140,7 +154,7 @@ function buildChart(all, dateISO, { yMin, yMax }, nowMin) {
   for (const e of events) {
     const px = xs(e.minutes), py = ys(e.height), up = e.tide === 'PM';
     s += `<circle class="${up ? 'point-pm' : 'point-bm'}" cx="${px}" cy="${py}" r="4"/>`;
-    s += `<text class="point-label" x="${px}" y="${up ? py - 16 : py + 22}" text-anchor="middle">${e.height.toFixed(2)}m</text>`;
+    s += `<text class="point-label" x="${px}" y="${up ? py - 16 : py + 22}" text-anchor="middle">${num(e.height)} m</text>`;
     s += `<text class="point-time" x="${px}" y="${up ? py - 28 : py + 34}" text-anchor="middle">${e.time}</text>`;
   }
   if (nowMin != null) {
@@ -156,7 +170,7 @@ function inDelay(min) {
   return h ? `${h} h ${String(m).padStart(2, '0')}` : `${m} min`;
 }
 
-// ---------- rendu ----------
+// ---------- apresentação ----------
 
 const $ = id => document.getElementById(id);
 
@@ -170,11 +184,12 @@ function render() {
   $('today').disabled = isToday;
 
   renderStatus();
+  renderInfoData();
 
   const raw = envelope && envelope.data;
   if (!raw) {
     $('chart').innerHTML = envelope && envelope.status === 'error'
-      ? `<div class="msg">Aucune donnée disponible pour l'instant.</div>` : '';
+      ? `<div class="msg">Sem dados de momento.</div>` : '';
     $('list').innerHTML = '';
     $('next').textContent = '';
     return;
@@ -182,7 +197,7 @@ function render() {
   const all = parseEvents(raw, dateISO);
   const day = all.filter(e => e.isTarget);
   if (!day.length) {
-    $('chart').innerHTML = `<div class="msg">Pas de données pour ce jour (fenêtre chargée : −${NAV_BACK} / +${NAV_FORWARD} jours).</div>`;
+    $('chart').innerHTML = `<div class="msg">Sem dados para este dia (janela carregada: −${NAV_BACK} / +${NAV_FORWARD} dias).</div>`;
     $('list').innerHTML = '';
     $('next').textContent = '';
     return;
@@ -192,35 +207,136 @@ function render() {
   $('list').innerHTML = day.map(e => {
     const past = isToday && e.minutes < now.minutes;
     return `<div class="tide ${e.tide === 'PM' ? 'pm' : 'bm'}${past ? ' past' : ''}">
-      <div class="k">${e.tide === 'PM' ? 'Pleine mer' : 'Basse mer'}</div>
+      <div class="k">${TIDE_NAME[e.tide]}</div>
       <div class="t">${e.time}</div><div class="h">${fmtH(e.height)}</div></div>`;
   }).join('');
 
   if (isToday) {
     const nx = all.find(e => e.minutes > now.minutes);
     $('next').innerHTML = nx
-      ? `${nx.tide === 'PM' ? 'Pleine mer' : 'Basse mer'} dans <b class="${nx.tide === 'BM' ? 'bm' : ''}">${inDelay(nx.minutes - now.minutes)}</b> · ${fmtH(nx.height)}`
+      ? `${TIDE_NAME[nx.tide]} daqui a <b class="${nx.tide === 'BM' ? 'bm' : ''}">${inDelay(nx.minutes - now.minutes)}</b> · ${fmtH(nx.height)}`
       : '';
   } else {
     $('next').textContent = '';
   }
 }
 
-function renderStatus() {
-  const el = $('status');
-  el.className = 'status';
-  if (!envelope) { el.textContent = offline ? `Hors ligne (${offline}) · aucune donnée enregistrée` : 'Chargement…'; if (offline) el.className = 'status err'; return; }
-  if (envelope.status === 'error') { el.className = 'status err'; el.textContent = `hidrografico.pt indisponible (${envelope.error})`; return; }
+function statusText() {
+  if (!envelope) return offline ? ['err', `Sem ligação (${offline}) · nenhum dado guardado`] : ['', 'A carregar…'];
+  if (envelope.status === 'error') return ['err', `hidrografico.pt indisponível (${envelope.error})`];
   const when = fmtFetchedAt(envelope.fetchedAt);
-  if (offline) { el.className = 'status warn'; el.textContent = `Hors ligne · données du ${when}`; return; }
-  if (envelope.status === 'stale') { el.className = 'status warn'; el.textContent = `hidrografico.pt indisponible (${envelope.error}) · données du ${when}`; return; }
-  el.textContent = `Source hidrografico.pt · ${when} · heure du port`;
+  if (offline) return ['warn', `Sem ligação · dados de ${when}`];
+  if (envelope.status === 'stale') return ['warn', `hidrografico.pt indisponível (${envelope.error}) · dados de ${when}`];
+  return ['', `Fonte: hidrografico.pt · ${when} · hora de Portugal`];
 }
 
-// ---------- chargement ----------
+function renderStatus() {
+  const [cls, txt] = statusText();
+  $('status').className = 'status' + (cls ? ' ' + cls : '');
+  $('status').textContent = txt;
+}
+
+function renderInfoData() {
+  $('infoData').textContent = statusText()[1];
+}
+
+// ---------- instalação ----------
+
+const SHARE_ICON = '<svg class="share-ico" viewBox="0 0 24 24" aria-label="Partilhar"><path d="M12 3v12M7.5 7.5 12 3l4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 10H6a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-9a1 1 0 0 0-1-1h-2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+
+const STEPS = {
+  ios: `<ol class="steps-list">
+      <li>Toque em <b>Partilhar</b> ${SHARE_ICON} (no Safari, na barra em baixo).</li>
+      <li>Escolha <b>«Adicionar ao ecrã principal»</b> (deslize a lista para baixo se não a vir).</li>
+      <li>Toque em <b>Adicionar</b>.</li>
+    </ol>
+    <div class="note">Abriu a ligação a partir do WhatsApp ou de outra app? Abra-a primeiro no Safari.</div>`,
+  android: `<ol class="steps-list">
+      <li>No Chrome, toque no menu <b>⋮</b> (em cima à direita).</li>
+      <li>Escolha <b>«Instalar aplicação»</b> ou <b>«Adicionar ao ecrã principal»</b>.</li>
+      <li>Confirme.</li>
+    </ol>`,
+};
+
+// Versão curta para o cartão (não deve empurrar os botões de navegação para fora do ecrã)
+function installContent() {
+  if (inAppIOS) return { title: 'Abra no Safari para instalar', html: 'Menu <b>⋯</b> → <b>«Abrir no Safari»</b>' };
+  if (inAppAndroid) return { title: 'Abra no Chrome para instalar', html: 'Menu <b>⋮</b> → <b>«Abrir no Chrome»</b>' };
+  if (isIOS) return {
+    title: 'Instale a app no iPhone',
+    html: `Partilhar ${SHARE_ICON} → <b>«Adicionar ao ecrã principal»</b>
+      <div class="note">Abriu a partir do WhatsApp? Abra primeiro no Safari.</div>`,
+  };
+  if (isAndroid && deferredPrompt) return { title: 'Instale a app no telemóvel', html: 'Acesso direto, mesmo sem rede.', button: true };
+  if (isAndroid) return { title: 'Instale a app no telemóvel', html: 'Menu <b>⋮</b> → <b>«Instalar aplicação»</b> ou <b>«Adicionar ao ecrã principal»</b>' };
+  return null;  // computador : nada a propor
+}
+
+function dismissed() { try { return localStorage.getItem(DISMISS_KEY) === '1'; } catch (e) { return false; } }
+function setDismissed(v) { try { localStorage.setItem(DISMISS_KEY, v ? '1' : '0'); } catch (e) { /* ignore */ } }
+
+let cardForced = false;   // aberta pelo botão "Instalar" do cabeçalho
+function renderInstall() {
+  const c = isStandalone() ? null : installContent();
+  const showCard = !!c && (!dismissed() || cardForced);
+  $('installCard').hidden = !showCard;
+  $('installChip').hidden = !c || showCard;
+  if (showCard) {
+    $('installTitle').textContent = c.title;
+    $('installBody').innerHTML = c.html;
+    $('installGo').hidden = !c.button;
+  }
+}
+
+$('installLater').addEventListener('click', () => { setDismissed(true); cardForced = false; renderInstall(); });
+$('installChip').addEventListener('click', () => { cardForced = true; renderInstall(); $('installCard').scrollIntoView({ behavior: 'smooth', block: 'end' }); });
+$('installGo').addEventListener('click', async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  try { await deferredPrompt.userChoice; } catch (e) { /* ignore */ }
+  deferredPrompt = null;
+  renderInstall();
+});
+window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); deferredPrompt = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { deferredPrompt = null; setDismissed(true); renderInstall(); });
+
+// ---------- página de informações ----------
+
+document.querySelectorAll('[data-steps]').forEach(el => { el.innerHTML = STEPS[el.dataset.steps]; });
+
+function openInfo() {
+  $('shareMsg').textContent = '';
+  $('howIos').open = isIOS;
+  $('howAndroid').open = isAndroid;
+  $('info').hidden = false;
+  $('info').scrollTop = 0;
+  history.pushState({ info: true }, '');   // o botão "voltar" do Android fecha a página
+}
+function closeInfo() { $('info').hidden = true; }
+$('infoBtn').addEventListener('click', openInfo);
+$('infoClose').addEventListener('click', () => { if (history.state && history.state.info) history.back(); else closeInfo(); });
+window.addEventListener('popstate', closeInfo);
+
+$('shareBtn').addEventListener('click', async () => {
+  const data = { title: 'Marés · Barra de Faro-Olhão', text: 'Marés da Barra de Faro-Olhão', url: APP_URL };
+  if (navigator.share) {
+    try { await navigator.share(data); } catch (e) { /* partilha cancelada */ }
+    return;
+  }
+  try { await navigator.clipboard.writeText(APP_URL); $('shareMsg').textContent = 'Ligação copiada.'; }
+  catch (e) { $('shareMsg').textContent = APP_URL; }
+});
+$('refreshBtn').addEventListener('click', async () => {
+  $('refreshBtn').disabled = true;
+  $('infoData').textContent = 'A atualizar…';
+  await refresh();
+  $('refreshBtn').disabled = false;
+});
+
+// ---------- carregamento ----------
 
 function loadStored() {
-  try { const v = JSON.parse(localStorage.getItem(STORE_KEY)); if (v && v.data) envelope = v; } catch (e) { /* stockage indisponible */ }
+  try { const v = JSON.parse(localStorage.getItem(STORE_KEY)); if (v && v.data) envelope = v; } catch (e) { /* armazenamento indisponível */ }
 }
 
 async function refresh() {
@@ -234,12 +350,12 @@ async function refresh() {
       envelope = env;
       try { localStorage.setItem(STORE_KEY, JSON.stringify(env)); } catch (e) { /* ignore */ }
     } else if (!envelope || !envelope.data) {
-      envelope = env;  // erreur serveur sans cache : on l'affiche
+      envelope = env;  // erro do servidor sem cache : mostrar
     } else {
       envelope = Object.assign({}, envelope, { status: 'stale', error: env.error });
     }
   } catch (e) {
-    offline = navigator.onLine === false ? 'pas de réseau' : 'serveur injoignable';
+    offline = navigator.onLine === false ? 'sem rede' : 'servidor inacessível';
   }
   render();
 }
@@ -253,9 +369,12 @@ $('prev').addEventListener('click', () => go(-1));
 $('nextDay').addEventListener('click', () => go(1));
 $('today').addEventListener('click', () => go(0));
 
-// Balayage horizontal pour changer de jour
+// Deslizar na horizontal para mudar de dia (não na página de informações)
 let sx = null, sy = null;
-document.addEventListener('touchstart', e => { const t = e.touches[0]; sx = t.clientX; sy = t.clientY; }, { passive: true });
+document.addEventListener('touchstart', e => {
+  if (!$('info').hidden) { sx = null; return; }
+  const t = e.touches[0]; sx = t.clientX; sy = t.clientY;
+}, { passive: true });
 document.addEventListener('touchend', e => {
   if (sx == null) return;
   const t = e.changedTouches[0], dx = t.clientX - sx, dy = t.clientY - sy;
@@ -263,10 +382,11 @@ document.addEventListener('touchend', e => {
   if (Math.abs(dx) > 50 && Math.abs(dx) > 1.5 * Math.abs(dy)) go(dx < 0 ? 1 : -1);
 }, { passive: true });
 
-// Une PWA iOS reprend souvent là où elle était au lieu de se recharger
+// Uma PWA iOS retoma muitas vezes onde estava em vez de recarregar
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) { hiddenAt = Date.now(); return; }
   if (hiddenAt && Date.now() - hiddenAt > RESET_MS) offset = 0;
+  renderInstall();
   if (Date.now() - lastFetch > REFRESH_MS) refresh(); else render();
 });
 window.addEventListener('online', refresh);
@@ -274,8 +394,9 @@ setInterval(() => { if (!document.hidden) render(); }, 60 * 1000);
 
 loadStored();
 render();
+renderInstall();
 refresh();
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js').catch(() => { /* hors HTTPS ou refusé : l'app marche sans */ });
+  navigator.serviceWorker.register('sw.js').catch(() => { /* sem HTTPS ou recusado : a app funciona sem */ });
 }

@@ -33,7 +33,17 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
-header h1 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .02em; }
+[hidden] { display: none !important; }
+.top { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+header h1 { margin: 0; flex: 1; min-width: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .02em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { appearance: none; border: 0; background: none; color: var(--muted); width: 36px; height: 36px; margin-right: -6px;
+  display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
+.icon-btn svg { width: 24px; height: 24px; }
+.icon-btn:active { color: var(--pm); }
+.chip { appearance: none; border: 1px solid var(--pm); background: none; color: var(--pm); font: inherit; font-size: 13px;
+  font-weight: 600; border-radius: 999px; padding: 4px 12px; cursor: pointer; flex-shrink: 0; }
+.chip:active { background: var(--pm); color: var(--bg-1); }
 .date { font-size: 30px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .next { font-size: 15px; color: var(--ink); min-height: 1.4em; margin-top: 2px; }
 .next b { color: var(--pm); font-weight: 700; }
@@ -68,6 +78,50 @@ header h1 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); l
 .status.warn { color: var(--warn); }
 .status.err { color: var(--err); }
 .msg { color: var(--err); font-size: 14px; padding: 24px 0; }
+
+/* Carte d'installation (navigateur seulement) */
+.install-card {
+  margin-top: 12px; padding: 10px 12px 12px; border-radius: 14px;
+  background: rgba(79,195,224,.10); border: 1px solid rgba(79,195,224,.35);
+  font-size: 14px; line-height: 1.4;
+}
+.install-head { display: flex; align-items: baseline; gap: 8px; }
+.install-card .title { flex: 1; font-weight: 700; font-size: 15px; }
+.install-row { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.install-row > div { flex: 1; }
+.install-card .note { font-size: 12px; margin-top: 4px; }
+button.link { appearance: none; border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+  padding: 4px 0 4px 8px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; flex-shrink: 0; }
+
+ol.steps-list { margin: 6px 0 0; padding-left: 20px; }
+ol.steps-list li { margin: 4px 0; }
+.share-ico { display: inline-block; width: 17px; height: 17px; vertical-align: -3px; color: var(--pm); }
+.note { color: var(--warn); margin-top: 8px; font-size: 13px; }
+
+button.primary, button.ghost {
+  appearance: none; font: inherit; font-size: 15px; font-weight: 600; border-radius: 12px; height: 44px; padding: 0 14px; cursor: pointer;
+}
+button.primary { border: 0; background: var(--pm); color: var(--bg-1); }
+button.ghost { border: 1px solid var(--line); background: none; color: var(--ink); }
+button.primary:active { opacity: .8; }
+button.ghost:active { background: var(--line); }
+button.wide { width: 100%; }
+
+/* Page d'informations */
+.info { position: fixed; inset: 0; z-index: 10; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: linear-gradient(180deg, var(--bg-1), var(--bg-2)); background-color: var(--bg-1); }
+.info-inner { max-width: 560px; margin: 0 auto; font-size: 15px; line-height: 1.5;
+  padding: calc(env(safe-area-inset-top) + 10px) calc(env(safe-area-inset-right) + 16px)
+           calc(env(safe-area-inset-bottom) + 24px) calc(env(safe-area-inset-left) + 16px); }
+.info-top { min-height: 36px; display: flex; align-items: center; }
+.back { appearance: none; border: 0; background: none; color: var(--pm); font: inherit; font-size: 16px; padding: 6px 0; cursor: pointer; }
+.info h2 { font-size: 26px; margin: 4px 0 16px; }
+.info h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 8px; }
+.info p { margin: 8px 0; }
+.info details { background: rgba(255,255,255,.05); border-radius: 12px; padding: 10px 14px; margin: 8px 0; }
+.info summary { font-weight: 600; cursor: pointer; }
+.hint { font-size: 13px; color: var(--muted); }
+#shareMsg { min-height: 1.3em; margin-top: 6px; }
 
 .nav { margin-top: auto; padding-top: 14px; display: flex; gap: 10px; }
 .nav button {
